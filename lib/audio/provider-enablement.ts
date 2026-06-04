@@ -115,5 +115,13 @@ export function listEnabledTTSProviderIds(config: ConfigMap): TTSProviderId[] {
 
 /** Whether at least one TTS provider (incl. browser-native) is enabled. */
 export function hasAnyEnabledTTSProvider(config: ConfigMap): boolean {
-  return listEnabledTTSProviderIds(config).length > 0;
+  for (const id of Object.keys(TTS_PROVIDERS) as TTSProviderId[]) {
+    if (isTTSProviderEnabled(id, config[id])) return true;
+  }
+  for (const id of Object.keys(config)) {
+    if (isCustomTTSProvider(id) && isTTSProviderEnabled(id as TTSProviderId, config[id])) {
+      return true;
+    }
+  }
+  return false;
 }

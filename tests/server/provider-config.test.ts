@@ -442,5 +442,20 @@ pdf:
       // Re-enabled by env, and configured via YAML key ⇒ managed, not disabled.
       expect(getServerTTSProviders()['openai-tts']).toEqual({});
     });
+
+    it('an empty TTS_<P>_ENABLED does NOT override a YAML disable', async () => {
+      yamlOverride = 'tts:\n  openai-tts:\n    enabled: false\n    apiKey: sk-yaml\n';
+      vi.stubEnv('TTS_OPENAI_ENABLED', '');
+      const { getServerTTSProviders } = await import('@/lib/server/provider-config');
+      expect(getServerTTSProviders()['openai-tts']).toEqual({ disabled: true });
+    });
+
+    it('isServerTTSProviderDisabled reflects the force-disable set', async () => {
+      vi.stubEnv('TTS_OPENAI_API_KEY', 'sk-tts');
+      vi.stubEnv('TTS_OPENAI_ENABLED', 'false');
+      const { isServerTTSProviderDisabled } = await import('@/lib/server/provider-config');
+      expect(isServerTTSProviderDisabled('openai-tts')).toBe(true);
+      expect(isServerTTSProviderDisabled('qwen-tts')).toBe(false);
+    });
   });
 });

@@ -248,7 +248,9 @@ function collectDisabledTTS(
   }
   for (const [prefix, providerId] of Object.entries(TTS_DISABLE_ENV_MAP)) {
     const raw = process.env[`${prefix}_ENABLED`];
-    if (raw === undefined) continue;
+    // Treat unset / empty (e.g. a blank CI-templated value) as "no opinion" so
+    // it never silently overrides an explicit YAML disable.
+    if (raw === undefined || raw.trim() === '') continue;
     if (parseBooleanEnv(raw)) disabled.delete(providerId);
     else disabled.add(providerId);
   }
@@ -432,6 +434,11 @@ export function getServerTTSProviders(): Record<string, { disabled?: boolean }> 
 
 export function resolveTTSApiKey(providerId: string, clientKey?: string): string {
   return resolveSectionApiKey('tts', providerId, clientKey);
+}
+
+/** Whether the operator force-disabled this TTS provider (server precedence, #665). */
+export function isServerTTSProviderDisabled(providerId: string): boolean {
+  return getConfig().ttsDisabled.has(providerId);
 }
 
 export function resolveTTSBaseUrl(providerId: string, clientBaseUrl?: string): string | undefined {
