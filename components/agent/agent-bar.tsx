@@ -91,7 +91,7 @@ function AgentVoicePill({
     .filter(({ groups }) => groups.length > 0);
 
   const displayName = (() => {
-    if (!resolved) return '';
+    if (!resolved) return t('agentBar.noVoice');
     for (const p of availableProviders) {
       if (p.providerId === resolved.providerId) {
         const v = p.voices.find((voice) => voice.id === resolved.voiceId);
@@ -201,6 +201,8 @@ function AgentVoicePill({
   // Cleanup on unmount
   useEffect(() => () => stopPreview(), [stopPreview]);
 
+  // Disabled (TTS off) OR no enabled provider ⇒ render the same muted,
+  // non-interactive pill — don't silently hide the control (#665).
   if (disabled) {
     return (
       <div
@@ -470,6 +472,8 @@ function TeacherVoicePill({
 
   useEffect(() => () => stopPreview(), [stopPreview]);
 
+  // Disabled (TTS off) OR no enabled provider ⇒ render the same muted,
+  // non-interactive pill — don't silently hide the control (#665).
   if (disabled) {
     return (
       <div
@@ -666,7 +670,6 @@ export function AgentBar() {
         ]
       : []),
   ];
-  const showVoice = availableProviders.length > 0;
 
   useEffect(() => {
     if (!open) return;
@@ -775,12 +778,11 @@ export function AgentBar() {
           )}
         </>
       )}
-      {showVoice &&
-        (ttsEnabled ? (
-          <Volume2 className="size-3.5 text-muted-foreground/40 group-hover:text-muted-foreground/60 transition-colors" />
-        ) : (
-          <VolumeX className="size-3.5 text-muted-foreground/30" />
-        ))}
+      {ttsEnabled ? (
+        <Volume2 className="size-3.5 text-muted-foreground/40 group-hover:text-muted-foreground/60 transition-colors" />
+      ) : (
+        <VolumeX className="size-3.5 text-muted-foreground/30" />
+      )}
     </div>
   );
 
@@ -814,14 +816,12 @@ export function AgentBar() {
         <span className="text-[10px] text-muted-foreground/50 shrink-0 w-[52px] text-right">
           {getAgentRole(agent)}
         </span>
-        {showVoice && (
-          <AgentVoicePill
-            agent={agent}
-            agentIndex={agentIndex}
-            availableProviders={availableProviders}
-            disabled={!ttsEnabled}
-          />
-        )}
+        <AgentVoicePill
+          agent={agent}
+          agentIndex={agentIndex}
+          availableProviders={availableProviders}
+          disabled={!ttsEnabled || availableProviders.length === 0}
+        />
       </div>
     );
   };
@@ -881,12 +881,10 @@ export function AgentBar() {
                   <span className="text-[13px] font-medium truncate min-w-0 flex-1">
                     {getAgentName(teacherAgent)}
                   </span>
-                  {showVoice && (
-                    <TeacherVoicePill
-                      availableProviders={availableProviders}
-                      disabled={!ttsEnabled}
-                    />
-                  )}
+                  <TeacherVoicePill
+                    availableProviders={availableProviders}
+                    disabled={!ttsEnabled || availableProviders.length === 0}
+                  />
                 </div>
               )}
 

@@ -130,7 +130,8 @@
     "voiceLoading": "加载中...",
     "voiceAutoAssign": "音色将自动分配",
     "searchVoice": "搜索音色",
-    "noMatchingVoices": "没有匹配音色"
+    "noMatchingVoices": "没有匹配音色",
+    "noVoice": "无可用音色"
   },
   "proactiveCard": {
     "discussion": "讨论",

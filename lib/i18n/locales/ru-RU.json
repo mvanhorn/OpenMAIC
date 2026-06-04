@@ -130,7 +130,8 @@
     "voiceLoading": "Загрузка...",
     "voiceAutoAssign": "Голоса будут назначены автоматически",
     "searchVoice": "Поиск голосов",
-    "noMatchingVoices": "Подходящих голосов нет"
+    "noMatchingVoices": "Подходящих голосов нет",
+    "noVoice": "Нет голоса"
   },
   "proactiveCard": {
     "discussion": "Обсуждение",

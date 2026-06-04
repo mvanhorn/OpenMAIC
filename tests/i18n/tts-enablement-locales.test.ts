@@ -26,6 +26,7 @@ const KEYS = [
   'settings.ttsProviderEnabledLabel',
   'settings.ttsProviderEnabledHint',
   'settings.ttsProviderDisabledByAdmin',
+  'agentBar.noVoice',
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- locale JSON traversal

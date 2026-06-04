@@ -130,7 +130,8 @@
     "voiceLoading": "Loading...",
     "voiceAutoAssign": "Voices will be auto-assigned",
     "searchVoice": "Search voices",
-    "noMatchingVoices": "No matching voices"
+    "noMatchingVoices": "No matching voices",
+    "noVoice": "No voice"
   },
   "proactiveCard": {
     "discussion": "Discussion",

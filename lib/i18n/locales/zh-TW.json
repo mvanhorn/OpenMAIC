@@ -130,6 +130,7 @@
     "voiceLoading": "載入中...",
     "voiceAutoAssign": "聲線將自動分配",
     "noMatchingVoices": "沒有符合的聲音",
+    "noVoice": "無可用音色",
     "searchVoice": "搜尋聲音"
   },
   "proactiveCard": {

@@ -130,7 +130,8 @@
     "voiceLoading": "جارٍ التحميل...",
     "voiceAutoAssign": "سيتم تعيين الأصوات تلقائيًا",
     "searchVoice": "البحث عن الأصوات",
-    "noMatchingVoices": "لا توجد أصوات مطابقة"
+    "noMatchingVoices": "لا توجد أصوات مطابقة",
+    "noVoice": "لا يوجد صوت"
   },
   "proactiveCard": {
     "discussion": "نقاش",
