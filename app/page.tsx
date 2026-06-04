@@ -31,6 +31,7 @@ import { InputGroup, InputGroupInput, InputGroupButton } from '@/components/ui/i
 import { Textarea as UITextarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { SettingsDialog } from '@/components/settings';
+import { OPEN_SETTINGS_EVENT, type OpenSettingsDetail } from '@/lib/ui/open-settings';
 import { GenerationToolbar } from '@/components/generation/generation-toolbar';
 import { AgentBar } from '@/components/agent/agent-bar';
 import { useTheme } from '@/lib/hooks/use-theme';
@@ -86,6 +87,18 @@ function HomePage() {
   const [settingsSection, setSettingsSection] = useState<
     import('@/lib/types/settings').SettingsSection | undefined
   >(undefined);
+
+  // Open the Settings dialog at a requested section when deeply-nested UI
+  // (e.g. the TTS toolbar CTA) dispatches the open-settings event.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<OpenSettingsDetail>).detail;
+      setSettingsSection(detail?.section);
+      setSettingsOpen(true);
+    };
+    window.addEventListener(OPEN_SETTINGS_EVENT, handler);
+    return () => window.removeEventListener(OPEN_SETTINGS_EVENT, handler);
+  }, []);
 
   // Draft cache for requirement text
   const { cachedValue: cachedRequirement, updateCache: updateRequirementCache } =

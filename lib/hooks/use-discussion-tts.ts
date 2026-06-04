@@ -5,9 +5,10 @@ import { useSettingsStore } from '@/lib/store/settings';
 import { useBrowserTTS } from '@/lib/hooks/use-browser-tts';
 import {
   resolveAgentVoice,
-  getAvailableProvidersWithVoices,
+  getEnabledProvidersWithVoices,
   type ResolvedVoice,
 } from '@/lib/audio/voice-resolver';
+import { isTTSProviderEnabled } from '@/lib/audio/provider-enablement';
 import { getVoxCPMProviderOptions, useVoxCPMVoiceProfiles } from '@/lib/audio/voxcpm-voices';
 import type { AgentConfig } from '@/lib/orchestration/registry/types';
 import type { TTSProviderId } from '@/lib/audio/types';
@@ -89,36 +90,33 @@ export function useDiscussionTTS({ enabled, agents, onAudioStateChange }: Discus
   }, [agents]);
 
   const resolveVoiceForAgent = useCallback(
-    (agentId: string | null): ResolvedVoice => {
-      const providers = getAvailableProvidersWithVoices(ttsProvidersConfig, voxcpmProfiles);
-      if (!agentId) {
-        if (providers.length > 0) {
-          return {
-            providerId: providers[0].providerId,
-            voiceId: providers[0].voices[0]?.id ?? 'default',
-          };
-        }
-        return { providerId: 'browser-native-tts', voiceId: 'default' };
-      }
+    (agentId: string | null): ResolvedVoice | null => {
+      // Enabled providers only — excludes browser-native (its dynamic voices are
+      // not in the static registry) and any disabled/unconfigured provider.
+      const providers = getEnabledProvidersWithVoices(ttsProvidersConfig, voxcpmProfiles);
+      const firstEnabled = (): ResolvedVoice | null =>
+        providers.length > 0
+          ? { providerId: providers[0].providerId, voiceId: providers[0].voices[0]?.id ?? 'default' }
+          : null;
+
+      if (!agentId) return firstEnabled();
       const agent = agents.find((a) => a.id === agentId);
-      if (!agent) {
-        if (providers.length > 0) {
+      if (!agent) return firstEnabled();
+
+      // Teacher: prefer the global lecture voice when it is still enabled
+      // (this is where an explicit browser-native selection is honored), else
+      // fall back deterministically to an enabled provider, else no audio.
+      if (agent.role === 'teacher') {
+        if (isTTSProviderEnabled(globalTtsProviderId, ttsProvidersConfig[globalTtsProviderId])) {
           return {
-            providerId: providers[0].providerId,
-            voiceId: providers[0].voices[0]?.id ?? 'default',
-            modelId: undefined,
+            providerId: globalTtsProviderId,
+            voiceId: globalTtsVoice,
+            modelId: ttsProvidersConfig[globalTtsProviderId]?.modelId,
           };
         }
-        return { providerId: 'browser-native-tts', voiceId: 'default', modelId: undefined };
+        return firstEnabled();
       }
-      // Teacher: always use global lecture voice (single source of truth with settings)
-      if (agent.role === 'teacher') {
-        return {
-          providerId: globalTtsProviderId,
-          voiceId: globalTtsVoice,
-          modelId: ttsProvidersConfig[globalTtsProviderId]?.modelId,
-        };
-      }
+
       const index = agentIndexMap.current.get(agentId) ?? 0;
       return resolveAgentVoice(agent, index, providers);
     },
@@ -242,7 +240,10 @@ export function useDiscussionTTS({ enabled, agents, onAudioStateChange }: Discus
     (messageId: string, partId: string, fullText: string, agentId: string | null) => {
       if (!enabled || ttsMuted || !fullText.trim()) return;
 
-      const { providerId, modelId, voiceId } = resolveVoiceForAgent(agentId);
+      // No enabled provider for this agent ⇒ skip TTS (no silent browser-native).
+      const resolved = resolveVoiceForAgent(agentId);
+      if (!resolved) return;
+      const { providerId, modelId, voiceId } = resolved;
       queueRef.current.push({
         messageId,
         partId,

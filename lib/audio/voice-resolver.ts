@@ -3,6 +3,10 @@ import { isCustomTTSProvider } from '@/lib/audio/types';
 import type { AgentConfig } from '@/lib/orchestration/registry/types';
 import { TTS_PROVIDERS } from '@/lib/audio/constants';
 import {
+  isTTSProviderEnabled,
+  type TTSEnablementConfig,
+} from '@/lib/audio/provider-enablement';
+import {
   VOXCPM_TTS_PROVIDER_ID,
   getVoxCPMProfileVoiceId,
   normalizeVoxCPMBackend,
@@ -16,50 +20,65 @@ export interface ResolvedVoice {
 }
 
 /**
- * Resolve the TTS provider + voice for an agent.
- * 1. If agent has voiceConfig and the voice is still valid, use it
- * 2. Otherwise, use the first available provider + deterministic voice by index
+ * Resolve the TTS provider + voice for an agent, choosing only among ENABLED
+ * providers (`enabledProviders` is the output of getEnabledProvidersWithVoices,
+ * which already excludes disabled/unconfigured providers and browser-native).
+ *
+ * 1. If the agent has a voiceConfig whose provider is still enabled, use it.
+ *    (Browser-native is allowed only as an explicit per-agent choice, never via
+ *    the index fallback below — it is never auto-assigned.)
+ * 2. Otherwise, deterministically pick from the enabled providers by index.
+ * 3. If nothing is enabled, return null — the caller must skip TTS rather than
+ *    silently falling back to browser-native (#665 symptom 4).
  */
 export function resolveAgentVoice(
   agent: AgentConfig,
   agentIndex: number,
-  availableProviders: ProviderWithVoices[],
-): ResolvedVoice {
-  // Agent-specific config
+  enabledProviders: ProviderWithVoices[],
+): ResolvedVoice | null {
+  // Agent-specific config — honored only when its provider is still enabled.
   if (agent.voiceConfig) {
-    // Browser-native voices are dynamic (not in static registry), so skip validation
+    // Browser-native voices are dynamic (not in static registry); it is a
+    // first-class provider only when present in the enabled list.
     if (agent.voiceConfig.providerId === 'browser-native-tts') {
-      return {
-        providerId: agent.voiceConfig.providerId,
-        modelId: agent.voiceConfig.modelId,
-        voiceId: agent.voiceConfig.voiceId,
-      };
+      if (enabledProviders.some((p) => p.providerId === 'browser-native-tts')) {
+        return {
+          providerId: agent.voiceConfig.providerId,
+          modelId: agent.voiceConfig.modelId,
+          voiceId: agent.voiceConfig.voiceId,
+        };
+      }
+    } else {
+      const fromEnabled = enabledProviders.find(
+        (p) => p.providerId === agent.voiceConfig!.providerId,
+      );
+      if (fromEnabled) {
+        const list = getServerVoiceList(agent.voiceConfig.providerId);
+        const allVoiceIds = new Set([...list, ...fromEnabled.voices.map((v) => v.id)]);
+        if (allVoiceIds.has(agent.voiceConfig.voiceId)) {
+          return {
+            providerId: agent.voiceConfig.providerId,
+            modelId: agent.voiceConfig.modelId,
+            voiceId: agent.voiceConfig.voiceId,
+          };
+        }
+      }
     }
-    const list = getServerVoiceList(agent.voiceConfig.providerId);
-    // Also check available providers (covers custom providers with dynamic voice lists)
-    const fromAvailable = availableProviders
-      .find((p) => p.providerId === agent.voiceConfig!.providerId)
-      ?.voices.map((v) => v.id);
-    const allVoiceIds = new Set([...list, ...(fromAvailable || [])]);
-    if (allVoiceIds.has(agent.voiceConfig.voiceId)) {
+  }
+
+  // Fallback: deterministic pick among enabled providers (canonical order).
+  if (enabledProviders.length > 0) {
+    const first = enabledProviders[0];
+    if (first.voices.length > 0) {
       return {
-        providerId: agent.voiceConfig.providerId,
-        modelId: agent.voiceConfig.modelId,
-        voiceId: agent.voiceConfig.voiceId,
+        providerId: first.providerId,
+        voiceId: first.voices[agentIndex % first.voices.length].id,
       };
     }
   }
 
-  // Fallback: first available provider, deterministic voice
-  if (availableProviders.length > 0) {
-    const first = availableProviders[0];
-    return {
-      providerId: first.providerId,
-      voiceId: first.voices[agentIndex % first.voices.length].id,
-    };
-  }
-
-  return { providerId: 'browser-native-tts', voiceId: 'default' };
+  // Nothing enabled — no TTS for this agent.
+  return null;
 }
 
 /**
@@ -97,25 +116,22 @@ export interface ProviderWithVoices {
 }
 
 /**
- * Get all available providers and their voices for the voice picker UI.
- * A provider is available if it has an API key or is server-configured.
- * Custom providers are available if they have voices configured.
- * Browser-native-tts is excluded (no static voice list).
+ * Get all ENABLED providers and their voices for the voice picker UI and for
+ * deterministic auto-assignment.
+ *
+ * A provider is included only when {@link isTTSProviderEnabled} holds:
+ * configured (server-managed, client API key, or explicit base URL — the
+ * registry `defaultBaseUrl` no longer counts), not server-disabled, and the
+ * user's per-provider `enabled` flag is not false (#665). Browser-native is
+ * excluded here (no static voice list); the agent UI injects its dynamic voices
+ * separately, gated on the same predicate.
  */
-export function getAvailableProvidersWithVoices(
-  ttsProvidersConfig: Record<
-    string,
-    {
-      apiKey?: string;
-      enabled?: boolean;
-      isServerConfigured?: boolean;
-      baseUrl?: string;
-      modelId?: string;
-      providerOptions?: Record<string, unknown>;
-      customName?: string;
-      customVoices?: Array<{ id: string; name: string }>;
-    }
-  >,
+export function getEnabledProvidersWithVoices(
+  ttsProvidersConfig: Record<string, TTSEnablementConfig & {
+    modelId?: string;
+    providerOptions?: Record<string, unknown>;
+    customName?: string;
+  }>,
   voxcpmProfiles: Array<{ id: string; name: string; kind?: string }> = [],
 ): ProviderWithVoices[] {
   const result: ProviderWithVoices[] = [];
@@ -127,14 +143,8 @@ export function getAvailableProvidersWithVoices(
     if (config.voices.length === 0) continue;
 
     const providerConfig = ttsProvidersConfig[providerId];
-    const hasApiKey = providerConfig?.apiKey && providerConfig.apiKey.trim().length > 0;
-    const isServerConfigured = providerConfig?.isServerConfigured === true;
-    const isKeylessLocalProvider =
-      !config.requiresApiKey &&
-      !!(isServerConfigured || providerConfig?.baseUrl?.trim() || config.defaultBaseUrl);
-    const isLocalVoxCPM =
-      providerId === VOXCPM_TTS_PROVIDER_ID &&
-      !!(isServerConfigured || providerConfig?.baseUrl?.trim());
+    if (!isTTSProviderEnabled(providerId, providerConfig)) continue;
+
     const visibleVoxCPMProfiles =
       providerId === VOXCPM_TTS_PROVIDER_ID
         ? voxcpmProfiles.filter((profile) => {
@@ -143,7 +153,7 @@ export function getAvailableProvidersWithVoices(
           })
         : [];
 
-    if (hasApiKey || isServerConfigured || isLocalVoxCPM || isKeylessLocalProvider) {
+    {
       const allVoices = [
         ...config.voices.map((v) => ({
           id: v.id,
@@ -203,6 +213,7 @@ export function getAvailableProvidersWithVoices(
     if (!isCustomTTSProvider(id)) continue;
     const customVoices = providerConfig.customVoices || [];
     if (customVoices.length === 0) continue;
+    if (!isTTSProviderEnabled(id as TTSProviderId, providerConfig)) continue;
 
     const providerId = id as TTSProviderId;
     const providerName = providerConfig.customName || id;

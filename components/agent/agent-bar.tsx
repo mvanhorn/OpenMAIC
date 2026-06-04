@@ -8,7 +8,11 @@ import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useSettingsStore } from '@/lib/store/settings';
 import { useAgentRegistry } from '@/lib/orchestration/registry/store';
-import { resolveAgentVoice, getAvailableProvidersWithVoices } from '@/lib/audio/voice-resolver';
+import { resolveAgentVoice, getEnabledProvidersWithVoices } from '@/lib/audio/voice-resolver';
+import {
+  BROWSER_NATIVE_TTS_PROVIDER_ID,
+  isTTSProviderEnabled,
+} from '@/lib/audio/provider-enablement';
 import { playBrowserTTSPreview } from '@/lib/audio/browser-tts-preview';
 import { getVoxCPMProviderOptions, useVoxCPMVoiceProfiles } from '@/lib/audio/voxcpm-voices';
 import { VOXCPM_AUTO_VOICE_ID, VOXCPM_TTS_PROVIDER_ID } from '@/lib/audio/voxcpm';
@@ -87,6 +91,7 @@ function AgentVoicePill({
     .filter(({ groups }) => groups.length > 0);
 
   const displayName = (() => {
+    if (!resolved) return '';
     for (const p of availableProviders) {
       if (p.providerId === resolved.providerId) {
         const v = p.voices.find((voice) => voice.id === resolved.voiceId);
@@ -269,9 +274,9 @@ function AgentVoicePill({
                 </div>
                 {group.voices.map((voice) => {
                   const isActive =
-                    resolved.providerId === provider.providerId &&
-                    resolved.voiceId === voice.id &&
-                    (resolved.modelId || '') === (group.modelId || '');
+                    resolved?.providerId === provider.providerId &&
+                    resolved?.voiceId === voice.id &&
+                    (resolved?.modelId || '') === (group.modelId || '');
                   const previewKey = `${provider.providerId}::${voice.id}`;
                   const isPreviewing = previewingId === previewKey;
                   const canPreview = !isNonPreviewableVoice(provider.providerId, voice.id);
@@ -635,10 +640,16 @@ export function AgentBar() {
   const selectedAgents = agents.filter((a) => selectedAgentIds.includes(a.id));
   const nonTeacherSelected = selectedAgents.filter((a) => a.role !== 'teacher');
 
-  const serverProviders = getAvailableProvidersWithVoices(ttsProvidersConfig, voxcpmProfiles);
+  const serverProviders = getEnabledProvidersWithVoices(ttsProvidersConfig, voxcpmProfiles);
+  // Browser-native is a first-class provider, surfaced only when the user has
+  // explicitly enabled it (default OFF) and not server-disabled (#665).
+  const browserNativeEnabled = isTTSProviderEnabled(
+    BROWSER_NATIVE_TTS_PROVIDER_ID,
+    ttsProvidersConfig[BROWSER_NATIVE_TTS_PROVIDER_ID],
+  );
   const availableProviders: ProviderWithVoices[] = [
     ...serverProviders,
-    ...(browserVoices.length > 0
+    ...(browserNativeEnabled && browserVoices.length > 0
       ? [
           {
             providerId: 'browser-native-tts' as TTSProviderId,

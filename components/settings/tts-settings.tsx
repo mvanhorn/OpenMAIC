@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
@@ -88,6 +89,9 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
   const isCustom = isCustomTTSProvider(selectedProviderId);
   const providerConfig = ttsProvidersConfig[selectedProviderId];
   const isServerConfigured = !!providerConfig?.isServerConfigured;
+  // Per-provider enablement (#665): server-disabled wins over the user toggle.
+  const providerServerDisabled = !!providerConfig?.serverDisabled;
+  const providerEnabled = !providerServerDisabled && providerConfig?.enabled !== false;
   const isVoxCPM = selectedProviderId === 'voxcpm-tts';
   const voxcpmBackend = normalizeVoxCPMBackend(providerConfig?.providerOptions?.backend);
   const requiresApiKey = isCustom
@@ -220,6 +224,25 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
 
   return (
     <div className={cn('space-y-6', isVoxCPM ? 'max-w-5xl' : 'max-w-3xl')}>
+      {/* Enable / disable this provider for the voice picker and auto-assignment (#665). */}
+      <div className="flex items-center justify-between rounded-lg border border-border/60 bg-background px-3 py-2.5">
+        <div className="min-w-0 pr-3">
+          <p className="text-sm font-medium">{t('settings.ttsProviderEnabledLabel')}</p>
+          <p className="text-[11px] text-muted-foreground">
+            {providerServerDisabled
+              ? t('settings.ttsProviderDisabledByAdmin')
+              : t('settings.ttsProviderEnabledHint')}
+          </p>
+        </div>
+        <Switch
+          checked={providerEnabled}
+          disabled={providerServerDisabled}
+          onCheckedChange={(checked) =>
+            setTTSProviderConfig(selectedProviderId, { enabled: checked })
+          }
+        />
+      </div>
+
       {/* Server-configured notice */}
       {isServerConfigured && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-3 text-sm text-blue-700 dark:text-blue-300">

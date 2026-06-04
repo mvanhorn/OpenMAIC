@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useMemo } from 'react';
-import { Volume2, Play, Loader2 } from 'lucide-react';
+import { Volume2, Play, Loader2, MonitorSpeaker, Settings2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
@@ -17,6 +17,11 @@ import { cn } from '@/lib/utils';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import { useSettingsStore } from '@/lib/store/settings';
 import { getTTSVoices } from '@/lib/audio/constants';
+import {
+  BROWSER_NATIVE_TTS_PROVIDER_ID,
+  hasAnyEnabledTTSProvider,
+} from '@/lib/audio/provider-enablement';
+import { openSettings } from '@/lib/ui/open-settings';
 import { useTTSPreview } from '@/lib/audio/use-tts-preview';
 import {
   getVoxCPMProviderOptions,
@@ -58,6 +63,8 @@ export function TtsConfigPopover() {
   const ttsSpeed = useSettingsStore((s) => s.ttsSpeed);
   const ttsProvidersConfig = useSettingsStore((s) => s.ttsProvidersConfig);
   const setTTSVoice = useSettingsStore((s) => s.setTTSVoice);
+  const setTTSProvider = useSettingsStore((s) => s.setTTSProvider);
+  const setTTSProviderConfig = useSettingsStore((s) => s.setTTSProviderConfig);
   const { profiles: voxcpmProfiles } = useVoxCPMVoiceProfiles();
   const voxcpmBackend = normalizeVoxCPMBackend(
     ttsProvidersConfig['voxcpm-tts']?.providerOptions?.backend,
@@ -81,6 +88,20 @@ export function TtsConfigPopover() {
   const pillCls =
     'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-all cursor-pointer select-none whitespace-nowrap border';
   const canPreview = ttsProviderId !== 'voxcpm-tts' || ttsVoice !== VOXCPM_AUTO_VOICE_ID;
+
+  // No provider enabled/available ⇒ audio is effectively off; show a CTA instead
+  // of silently falling back to browser-native (#665).
+  const hasEnabledProvider = hasAnyEnabledTTSProvider(ttsProvidersConfig);
+  const browserNativeServerDisabled =
+    !!ttsProvidersConfig[BROWSER_NATIVE_TTS_PROVIDER_ID]?.serverDisabled;
+  const effectiveOn = ttsEnabled && hasEnabledProvider;
+
+  const handleEnableBrowserNative = useCallback(() => {
+    setTTSProviderConfig(BROWSER_NATIVE_TTS_PROVIDER_ID, { enabled: true });
+    setTTSProvider(BROWSER_NATIVE_TTS_PROVIDER_ID);
+    setTTSVoice('default');
+    setTTSEnabled(true);
+  }, [setTTSProviderConfig, setTTSProvider, setTTSVoice, setTTSEnabled]);
 
   const handlePreview = useCallback(async () => {
     if (previewing) {
@@ -148,13 +169,13 @@ export function TtsConfigPopover() {
             <button
               className={cn(
                 pillCls,
-                ttsEnabled
+                effectiveOn
                   ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200/60 dark:border-emerald-700/50'
                   : 'border-border/50 text-muted-foreground/70 hover:text-foreground hover:bg-muted/60',
               )}
             >
               <Volume2 className="size-3.5" />
-              {ttsEnabled && (
+              {effectiveOn && (
                 <span className="max-w-[60px] truncate">
                   {localizedVoices.find((v) => v.id === ttsVoice)?.displayName || ttsVoice}
                 </span>
@@ -170,11 +191,11 @@ export function TtsConfigPopover() {
           <Volume2
             className={cn(
               'size-4 shrink-0',
-              ttsEnabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground',
+              effectiveOn ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground',
             )}
           />
           <span
-            className={cn('flex-1 text-sm font-medium', !ttsEnabled && 'text-muted-foreground')}
+            className={cn('flex-1 text-sm font-medium', !effectiveOn && 'text-muted-foreground')}
           >
             {t('toolbar.ttsTitle')}
           </span>
@@ -185,8 +206,45 @@ export function TtsConfigPopover() {
           />
         </div>
 
-        {/* Config body */}
-        {ttsEnabled && (
+        {/* Empty state: no provider enabled/available — CTA instead of silent
+            fallback (#665). */}
+        {!hasEnabledProvider ? (
+          <div className="px-3.5 py-3.5 space-y-2.5">
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {t('toolbar.ttsNoProviderDesc')}
+            </p>
+            <button
+              type="button"
+              onClick={handleEnableBrowserNative}
+              disabled={browserNativeServerDisabled}
+              className={cn(
+                'flex w-full items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
+                browserNativeServerDisabled
+                  ? 'cursor-not-allowed bg-muted/50 text-muted-foreground/60'
+                  : 'bg-emerald-600 text-white hover:bg-emerald-700 dark:bg-emerald-600/90 dark:hover:bg-emerald-600',
+              )}
+            >
+              <MonitorSpeaker className="size-3.5" />
+              {t('toolbar.ttsEnableBrowserNative')}
+            </button>
+            {browserNativeServerDisabled && (
+              <p className="text-[11px] text-muted-foreground/70">
+                {t('toolbar.ttsBrowserNativeDisabledByAdmin')}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                openSettings('tts');
+              }}
+              className="flex w-full items-center justify-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+            >
+              <Settings2 className="size-3.5" />
+              {t('toolbar.ttsConfigureProvider')}
+            </button>
+          </div>
+        ) : ttsEnabled ? (
           <div className="px-3.5 py-3 space-y-3">
             {/* Voice + Preview row */}
             <div className="flex items-center gap-2">
@@ -222,7 +280,7 @@ export function TtsConfigPopover() {
               </button>
             </div>
           </div>
-        )}
+        ) : null}
       </PopoverContent>
     </Popover>
   );

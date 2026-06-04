@@ -185,7 +185,7 @@ vi.stubGlobal('window', { localStorage: localStorageStub });
 /** Full server response shape */
 interface MockServerResponse {
   providers?: Record<string, { models?: string[]; baseUrl?: string }>;
-  tts?: Record<string, { baseUrl?: string }>;
+  tts?: Record<string, { baseUrl?: string; disabled?: boolean }>;
   asr?: Record<string, { baseUrl?: string }>;
   pdf?: Record<string, { baseUrl?: string }>;
   image?: Record<string, { baseUrl?: string }>;
@@ -1500,5 +1500,55 @@ describe('settings store — outline review preference', () => {
     const store = await getStore();
 
     expect(store.getState().reviewOutlineEnabled).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TTS provider enablement (#665)
+// ---------------------------------------------------------------------------
+
+describe('TTS provider enablement (#665)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    storage.clear();
+    mockFetch.mockReset();
+  });
+
+  async function getStore() {
+    const { useSettingsStore } = await import('@/lib/store/settings');
+    return useSettingsStore;
+  }
+
+  it('browser-native TTS is OFF by default (fresh install, opt-in)', async () => {
+    const store = await getStore();
+    expect(store.getState().ttsProvidersConfig['browser-native-tts'].enabled).toBe(false);
+  });
+
+  it('server force-disable sets serverDisabled and does NOT mark the provider managed', async () => {
+    mockServerResponse({ tts: { 'openai-tts': { disabled: true } } });
+    const store = await getStore();
+    await store.getState().fetchServerProviders();
+    const cfg = store.getState().ttsProvidersConfig['openai-tts'];
+    expect(cfg.serverDisabled).toBe(true);
+    expect(cfg.isServerConfigured).toBe(false);
+  });
+
+  it('a server-managed (not disabled) provider is marked configured, not disabled', async () => {
+    mockServerResponse({ tts: { 'openai-tts': {} } });
+    const store = await getStore();
+    await store.getState().fetchServerProviders();
+    const cfg = store.getState().ttsProvidersConfig['openai-tts'];
+    expect(cfg.isServerConfigured).toBe(true);
+    expect(cfg.serverDisabled).toBe(false);
+  });
+
+  it('clears serverDisabled when a later sync no longer reports the provider disabled', async () => {
+    const store = await getStore();
+    mockServerResponse({ tts: { 'openai-tts': { disabled: true } } });
+    await store.getState().fetchServerProviders();
+    expect(store.getState().ttsProvidersConfig['openai-tts'].serverDisabled).toBe(true);
+    mockServerResponse({ tts: {} });
+    await store.getState().fetchServerProviders();
+    expect(store.getState().ttsProvidersConfig['openai-tts'].serverDisabled).toBe(false);
   });
 });

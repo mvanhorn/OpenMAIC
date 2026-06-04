@@ -84,6 +84,8 @@ export interface SettingsState {
       customModels?: Array<{ id: string; name: string }>;
       providerOptions?: Record<string, unknown>;
       isServerConfigured?: boolean;
+      /** Admin/server-level force-off (server-providers.yml / env). Overrides `enabled`. */
+      serverDisabled?: boolean;
       // Custom provider fields
       customName?: string;
       customDefaultBaseUrl?: string;
@@ -399,7 +401,9 @@ const getDefaultAudioConfig = () => ({
       modelId: 'kokoro-v1',
       enabled: false,
     },
-    'browser-native-tts': { apiKey: '', baseUrl: '', enabled: true },
+    // Browser-native is OFF by default — fully opt-in. Native voice quality is
+    // poor; it must never be a silent default (#665).
+    'browser-native-tts': { apiKey: '', baseUrl: '', enabled: false },
   } as Record<
     TTSProviderId,
     { apiKey: string; baseUrl: string; modelId?: string; enabled: boolean }
@@ -1196,7 +1200,9 @@ export const useSettingsStore = create<SettingsState>()(
             // and presence (the "managed" flag) — never a base URL.
             const data = (await res.json()) as {
               providers: Record<string, { models?: string[] }>;
-              tts: Record<string, Record<string, never>>;
+              // TTS additionally carries an optional `disabled` flag for
+              // admin/server-level force-off (#665).
+              tts: Record<string, { disabled?: boolean }>;
               asr: Record<string, Record<string, never>>;
               pdf: Record<string, Record<string, never>>;
               image: Record<string, { models?: string[] }>;
@@ -1238,7 +1244,9 @@ export const useSettingsStore = create<SettingsState>()(
                 }
               }
 
-              // Merge TTS providers
+              // Merge TTS providers. Reset both server flags first, then apply:
+              // an entry with `disabled` is force-off (server precedence) and is
+              // NOT treated as managed/configured; any other entry is managed.
               const newTTSConfig = { ...state.ttsProvidersConfig };
               for (const pid of Object.keys(newTTSConfig)) {
                 const key = pid as TTSProviderId;
@@ -1246,15 +1254,17 @@ export const useSettingsStore = create<SettingsState>()(
                   newTTSConfig[key] = {
                     ...newTTSConfig[key],
                     isServerConfigured: false,
+                    serverDisabled: false,
                   };
                 }
               }
-              for (const pid of Object.keys(data.tts)) {
+              for (const [pid, info] of Object.entries(data.tts)) {
                 const key = pid as TTSProviderId;
                 if (newTTSConfig[key]) {
                   newTTSConfig[key] = {
                     ...newTTSConfig[key],
-                    isServerConfigured: true,
+                    isServerConfigured: !info.disabled,
+                    serverDisabled: info.disabled === true,
                   };
                 }
               }
@@ -1368,13 +1378,17 @@ export const useSettingsStore = create<SettingsState>()(
               // === Validate current selections against updated configs ===
               // Build fallback: server-configured first, then client-key-only
               const buildFallback = <T extends string>(
-                config: Record<string, { isServerConfigured?: boolean; apiKey?: string }>,
+                config: Record<
+                  string,
+                  { isServerConfigured?: boolean; apiKey?: string; serverDisabled?: boolean }
+                >,
               ): T[] => [
+                // Server-disabled providers (TTS only) are never fallback targets.
                 ...Object.entries(config)
-                  .filter(([, c]) => c.isServerConfigured)
+                  .filter(([, c]) => c.isServerConfigured && !c.serverDisabled)
                   .map(([id]) => id as T),
                 ...Object.entries(config)
-                  .filter(([, c]) => !c.isServerConfigured && !!c.apiKey)
+                  .filter(([, c]) => !c.isServerConfigured && !c.serverDisabled && !!c.apiKey)
                   .map(([id]) => id as T),
               ];
 
@@ -1491,8 +1505,11 @@ export const useSettingsStore = create<SettingsState>()(
                   }
                 }
 
-                // TTS: select first server provider if current is not server-configured
-                const serverTtsIds = Object.keys(data.tts) as TTSProviderId[];
+                // TTS: select first server provider if current is not server-configured.
+                // Skip server-disabled entries — they are force-off, not selectable.
+                const serverTtsIds = Object.entries(data.tts)
+                  .filter(([, info]) => !info.disabled)
+                  .map(([id]) => id) as TTSProviderId[];
                 if (
                   serverTtsIds.length > 0 &&
                   !newTTSConfig[state.ttsProviderId]?.isServerConfigured
@@ -1620,7 +1637,7 @@ export const useSettingsStore = create<SettingsState>()(
     },
     {
       name: 'settings-storage',
-      version: 3,
+      version: 4,
       // Migrate persisted state
       migrate: (persistedState: unknown, version: number) => {
         const state = persistedState as Partial<SettingsState>;
@@ -1795,6 +1812,14 @@ export const useSettingsStore = create<SettingsState>()(
         // v2 → v3: managed providers no longer expose a base URL to the client;
         // drop any persisted serverBaseUrl left over from older versions (#620).
         stripLegacyServerBaseUrl(state);
+
+        // v3 → v4: browser-native TTS is now a first-class, opt-in provider
+        // (default OFF) under the unified enablement model. Force it off once
+        // for existing users so it is no longer a silent default (#665). Users
+        // who want it re-enable via the toolbar CTA.
+        if (version < 4 && state.ttsProvidersConfig?.['browser-native-tts']) {
+          state.ttsProvidersConfig['browser-native-tts'].enabled = false;
+        }
 
         ensureValidProviderSelections(state);
         ensureBuiltInAudioProviders(state);

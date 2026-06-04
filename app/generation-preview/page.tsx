@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 import { useStageStore } from '@/lib/store/stage';
 import { useSettingsStore } from '@/lib/store/settings';
 import { useAgentRegistry } from '@/lib/orchestration/registry/store';
-import { getAvailableProvidersWithVoices } from '@/lib/audio/voice-resolver';
+import { getEnabledProvidersWithVoices } from '@/lib/audio/voice-resolver';
 import { getVoxCPMProviderOptions, useVoxCPMVoiceProfiles } from '@/lib/audio/voxcpm-voices';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import {
@@ -675,7 +675,7 @@ function GenerationPreviewContent() {
           ];
 
           const getAvailableVoicesForGeneration = () => {
-            const providers = getAvailableProvidersWithVoices(
+            const providers = getEnabledProvidersWithVoices(
               settings.ttsProvidersConfig,
               voxcpmProfiles,
             );
