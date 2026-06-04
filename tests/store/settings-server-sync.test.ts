@@ -1524,6 +1524,36 @@ describe('TTS provider enablement (#665)', () => {
     expect(store.getState().ttsProvidersConfig['browser-native-tts'].enabled).toBe(false);
   });
 
+  it('non-browser-native built-ins default enabled:true (configured ⇒ visible)', async () => {
+    const store = await getStore();
+    // azure-tts is in the mocked registry; it must default ON so a configured /
+    // server-managed provider is never hidden by a stale default.
+    expect(store.getState().ttsProvidersConfig['azure-tts'].enabled).toBe(true);
+  });
+
+  it('v3→v4 migration normalizes stale enabled flags (others ON, browser-native OFF)', async () => {
+    storage.set(
+      'settings-storage',
+      JSON.stringify({
+        version: 3,
+        state: {
+          ttsProvidersConfig: {
+            'openai-tts': { apiKey: '', baseUrl: '', enabled: true },
+            // stale default-false on a configured-capable provider — must flip ON
+            'azure-tts': { apiKey: '', baseUrl: '', enabled: false },
+            // legacy default-true browser-native — must flip OFF
+            'browser-native-tts': { apiKey: '', baseUrl: '', enabled: true },
+          },
+          asrProvidersConfig: {},
+        },
+      }),
+    );
+    const store = await getStore();
+    const cfg = store.getState().ttsProvidersConfig;
+    expect(cfg['azure-tts'].enabled).toBe(true);
+    expect(cfg['browser-native-tts'].enabled).toBe(false);
+  });
+
   it('server force-disable sets serverDisabled and does NOT mark the provider managed', async () => {
     mockServerResponse({ tts: { 'openai-tts': { disabled: true } } });
     const store = await getStore();

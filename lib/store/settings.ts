@@ -381,25 +381,29 @@ const getDefaultAudioConfig = () => ({
   asrProviderId: 'browser-native' as ASRProviderId,
   asrLanguage: 'zh',
   ttsProvidersConfig: {
+    // Built-in providers default enabled:true — they only ever surface once
+    // configured (API key or server-managed), so "enabled" is a user opt-OUT,
+    // not the visibility gate. A server-configured provider must not be hidden
+    // by a stale default (#665).
     'openai-tts': { apiKey: '', baseUrl: '', enabled: true },
-    'azure-tts': { apiKey: '', baseUrl: '', enabled: false },
-    'glm-tts': { apiKey: '', baseUrl: '', enabled: false },
-    'qwen-tts': { apiKey: '', baseUrl: '', enabled: false },
+    'azure-tts': { apiKey: '', baseUrl: '', enabled: true },
+    'glm-tts': { apiKey: '', baseUrl: '', enabled: true },
+    'qwen-tts': { apiKey: '', baseUrl: '', enabled: true },
     'voxcpm-tts': {
       apiKey: '',
       baseUrl: '',
       modelId: VOXCPM_VLLM_MODEL_ID,
-      enabled: false,
+      enabled: true,
       providerOptions: { backend: DEFAULT_VOXCPM_BACKEND },
     },
-    'doubao-tts': { apiKey: '', baseUrl: '', enabled: false },
-    'elevenlabs-tts': { apiKey: '', baseUrl: '', enabled: false },
-    'minimax-tts': { apiKey: '', baseUrl: '', modelId: 'speech-2.8-hd', enabled: false },
+    'doubao-tts': { apiKey: '', baseUrl: '', enabled: true },
+    'elevenlabs-tts': { apiKey: '', baseUrl: '', enabled: true },
+    'minimax-tts': { apiKey: '', baseUrl: '', modelId: 'speech-2.8-hd', enabled: true },
     'lemonade-tts': {
       apiKey: '',
       baseUrl: '',
       modelId: 'kokoro-v1',
-      enabled: false,
+      enabled: true,
     },
     // Browser-native is OFF by default — fully opt-in. Native voice quality is
     // poor; it must never be a silent default (#665).
@@ -1813,12 +1817,16 @@ export const useSettingsStore = create<SettingsState>()(
         // drop any persisted serverBaseUrl left over from older versions (#620).
         stripLegacyServerBaseUrl(state);
 
-        // v3 → v4: browser-native TTS is now a first-class, opt-in provider
-        // (default OFF) under the unified enablement model. Force it off once
-        // for existing users so it is no longer a silent default (#665). Users
-        // who want it re-enable via the toolbar CTA.
-        if (version < 4 && state.ttsProvidersConfig?.['browser-native-tts']) {
-          state.ttsProvidersConfig['browser-native-tts'].enabled = false;
+        // v3 → v4: the per-provider `enabled` flag becomes live under the
+        // unified enablement model (#665). Before v4 it was never user-editable,
+        // so any persisted value is just a stale default — normalize it:
+        // browser-native OFF (opt-in), every other built-in ON (it only surfaces
+        // once configured, so a server-managed provider must not stay hidden).
+        if (version < 4 && state.ttsProvidersConfig) {
+          for (const pid of Object.keys(TTS_PROVIDERS) as BuiltInTTSProviderId[]) {
+            const cfg = state.ttsProvidersConfig[pid];
+            if (cfg) cfg.enabled = pid !== 'browser-native-tts';
+          }
         }
 
         ensureValidProviderSelections(state);
